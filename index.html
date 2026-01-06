@@ -15,6 +15,7 @@
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #18181b; }
     ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+    canvas { max-height: 300px !important; }
   </style>
 </head>
 <body>
@@ -23,9 +24,10 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
 
     const App = () => {
       const [currentView, setCurrentView] = useState('today');
@@ -34,6 +36,9 @@
       const [expandedSections, setExpandedSections] = useState({ morning: false, evening: false, meal: false });
       const [weekOffset, setWeekOffset] = useState(0);
       const [monthOffset, setMonthOffset] = useState(0);
+      const [progressMetric, setProgressMetric] = useState('weight');
+      const chartRef = useRef(null);
+      const chartInstance = useRef(null);
       
       useEffect(() => {
         const saved = localStorage.getItem('transformation-ahmed-data');
@@ -47,6 +52,78 @@
           localStorage.setItem('transformation-ahmed-data', JSON.stringify(data));
         }
       }, [data]);
+
+      useEffect(() => {
+        if (currentView === 'progress' && chartRef.current) {
+          if (chartInstance.current) {
+            chartInstance.current.destroy();
+          }
+          
+          const progressData = getProgressData();
+          if (progressData.length > 0) {
+            const ctx = chartRef.current.getContext('2d');
+            
+            const isBarChart = progressMetric === 'training' || progressMetric === 'fasting';
+            const chartColor = progressMetric === 'weight' ? '#10b981' : 
+                              progressMetric === 'steps' ? '#3b82f6' :
+                              progressMetric === 'training' ? '#f43f5e' : '#a855f7';
+            
+            chartInstance.current = new Chart(ctx, {
+              type: isBarChart ? 'bar' : 'line',
+              data: {
+                labels: progressData.map(d => d.date),
+                datasets: [{
+                  label: progressMetric === 'weight' ? 'Poids (kg)' :
+                         progressMetric === 'steps' ? 'Pas' :
+                         progressMetric === 'training' ? 'Séances' : 'Jours',
+                  data: progressData.map(d => d.value),
+                  backgroundColor: isBarChart ? chartColor : 'transparent',
+                  borderColor: chartColor,
+                  borderWidth: 3,
+                  tension: 0.4,
+                  fill: !isBarChart,
+                  pointRadius: isBarChart ? 0 : 6,
+                  pointBackgroundColor: chartColor
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                  legend: { display: false },
+                  tooltip: {
+                    backgroundColor: '#18181b',
+                    titleColor: '#fafafa',
+                    bodyColor: '#fafafa',
+                    borderColor: '#27272a',
+                    borderWidth: 1,
+                    padding: 12,
+                    displayColors: false
+                  }
+                },
+                scales: {
+                  y: {
+                    beginAtZero: progressMetric !== 'weight',
+                    ticks: { color: '#71717a', font: { size: 12 } },
+                    grid: { color: '#27272a' }
+                  },
+                  x: {
+                    ticks: { color: '#71717a', font: { size: 12 }, maxRotation: 45, minRotation: 45 },
+                    grid: { display: false }
+                  }
+                }
+              }
+            });
+          }
+        }
+        
+        return () => {
+          if (chartInstance.current) {
+            chartInstance.current.destroy();
+            chartInstance.current = null;
+          }
+        };
+      }, [currentView, progressMetric, data]);
 
       const getTodayData = () => {
         return data[selectedDate] || {
@@ -147,6 +224,51 @@
         return dates;
       };
 
+      const getProgressData = () => {
+        const sorted = Object.entries(data)
+          .filter(([_, value]) => {
+            if (progressMetric === 'weight') return value.weight && value.weight !== '';
+            if (progressMetric === 'steps') return value.steps && value.steps !== '';
+            if (progressMetric === 'training') return value.training;
+            if (progressMetric === 'fasting') return value.fasting;
+            return false;
+          })
+          .sort(([a], [b]) => new Date(a) - new Date(b));
+
+        if (progressMetric === 'weight') {
+          return sorted.map(([date, value]) => ({
+            date: new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }),
+            value: parseFloat(value.weight)
+          }));
+        }
+        
+        if (progressMetric === 'steps') {
+          return sorted.map(([date, value]) => ({
+            date: new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }),
+            value: parseInt(value.steps)
+          }));
+        }
+
+        if (progressMetric === 'training') {
+          const counts = {};
+          sorted.forEach(([date]) => {
+            const weekKey = new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+            counts[weekKey] = (counts[weekKey] || 0) + 1;
+          });
+          return Object.entries(counts).slice(-10).map(([date, count]) => ({ date, value: count }));
+        }
+
+        if (progressMetric === 'fasting') {
+          const types = {};
+          sorted.forEach(([_, value]) => {
+            types[value.fasting] = (types[value.fasting] || 0) + 1;
+          });
+          return Object.entries(types).map(([type, count]) => ({ date: type, value: count }));
+        }
+
+        return [];
+      };
+
       const exportData = () => {
         const csv = ['Date,Poids,Training,Pas,Hydratation,Jeûne,Mood,Suppl Matin,Suppl Soir,Suppl Repas,Commentaires'];
         Object.entries(data).forEach(([date, value]) => {
@@ -200,6 +322,7 @@
       const streak = getStreak();
       const weekDates = getWeekDates();
       const monthDates = getMonthDates();
+      const progressData = getProgressData();
 
       const styles = {
         container: { minHeight: '100vh', paddingBottom: '80px' },
@@ -226,7 +349,9 @@
         input: { width: '100%', background: '#27272a', border: '2px solid #3f3f46', borderRadius: '8px', 
                 padding: '16px', fontSize: '20px', fontWeight: 'bold', textAlign: 'center', color: '#fafafa' },
         textarea: { width: '100%', background: '#27272a', border: '2px solid #3f3f46', borderRadius: '8px',
-                   padding: '12px', color: '#fafafa', resize: 'none', fontFamily: 'inherit' }
+                   padding: '12px', color: '#fafafa', resize: 'none', fontFamily: 'inherit' },
+        select: { width: '100%', background: '#27272a', border: '2px solid #3f3f46', borderRadius: '8px',
+                 padding: '12px 16px', fontSize: '16px', fontWeight: '600', color: '#fafafa' }
       };
 
       const SupplementSection = ({ time, title, color, icon }) => {
@@ -284,11 +409,12 @@
                 )}
               </div>
               <div style={styles.nav}>
-                {['today', 'week', 'month', 'history'].map(view => (
+                {['today', 'week', 'month', 'progress', 'history'].map(view => (
                   <button key={view} onClick={() => setCurrentView(view)} style={styles.navBtn(currentView === view)}>
                     {view === 'today' && "Aujourd'hui"}
                     {view === 'week' && 'Semaine'}
                     {view === 'month' && 'Mois'}
+                    {view === 'progress' && 'Progression'}
                     {view === 'history' && 'Historique'}
                   </button>
                 ))}
@@ -519,6 +645,105 @@
                     </div>
                   </div>
                 </div>
+              </>
+            )}
+
+            {currentView === 'progress' && (
+              <>
+                <div style={styles.card}>
+                  <label style={{ fontSize: '14px', fontWeight: '600', color: '#a1a1aa', display: 'block', marginBottom: '12px' }}>
+                    Afficher la progression de :
+                  </label>
+                  <select value={progressMetric} onChange={(e) => setProgressMetric(e.target.value)} style={styles.select}>
+                    <option value="weight">Poids (kg)</option>
+                    <option value="steps">Nombre de pas</option>
+                    <option value="training">Séances de training</option>
+                    <option value="fasting">Jours de jeûne par type</option>
+                  </select>
+                </div>
+
+                {progressData.length > 0 ? (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '16px' }}>
+                      <div style={styles.card}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fb923c', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '20px' }}>🔥</span>
+                          <span style={{ fontSize: '14px', fontWeight: '600' }}>Streak</span>
+                        </div>
+                        <p style={{ fontSize: '40px', fontWeight: 'black' }}>{streak}</p>
+                        <p style={{ fontSize: '12px', color: '#71717a', marginTop: '4px' }}>jours consécutifs</p>
+                      </div>
+
+                      {progressMetric === 'weight' && progressData.length >= 2 && (
+                        <div style={styles.card}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '20px' }}>📉</span>
+                            <span style={{ fontSize: '14px', fontWeight: '600' }}>Perte totale</span>
+                          </div>
+                          <p style={{ fontSize: '40px', fontWeight: 'black' }}>
+                            {(progressData[0].value - progressData[progressData.length - 1].value).toFixed(1)}
+                          </p>
+                          <p style={{ fontSize: '12px', color: '#71717a', marginTop: '4px' }}>kg perdus</p>
+                        </div>
+                      )}
+
+                      {progressMetric === 'steps' && progressData.length > 0 && (
+                        <div style={styles.card}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '20px' }}>👣</span>
+                            <span style={{ fontSize: '14px', fontWeight: '600' }}>Moyenne</span>
+                          </div>
+                          <p style={{ fontSize: '40px', fontWeight: 'black' }}>
+                            {Math.round(progressData.reduce((sum, d) => sum + d.value, 0) / progressData.length).toLocaleString()}
+                          </p>
+                          <p style={{ fontSize: '12px', color: '#71717a', marginTop: '4px' }}>pas / jour</p>
+                        </div>
+                      )}
+
+                      {progressMetric === 'training' && progressData.length > 0 && (
+                        <div style={styles.card}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f43f5e', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '20px' }}>💪</span>
+                            <span style={{ fontSize: '14px', fontWeight: '600' }}>Total séances</span>
+                          </div>
+                          <p style={{ fontSize: '40px', fontWeight: 'black' }}>
+                            {Object.values(data).filter(d => d.training).length}
+                          </p>
+                          <p style={{ fontSize: '12px', color: '#71717a', marginTop: '4px' }}>séances effectuées</p>
+                        </div>
+                      )}
+
+                      {progressMetric === 'fasting' && progressData.length > 0 && (
+                        <div style={styles.card}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#a855f7', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '20px' }}>⏰</span>
+                            <span style={{ fontSize: '14px', fontWeight: '600' }}>Total jeûnes</span>
+                          </div>
+                          <p style={{ fontSize: '40px', fontWeight: 'black' }}>
+                            {progressData.reduce((sum, d) => sum + d.value, 0)}
+                          </p>
+                          <p style={{ fontSize: '12px', color: '#71717a', marginTop: '4px' }}>jours de jeûne</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={styles.card}>
+                      <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '24px' }}>
+                        {progressMetric === 'weight' && 'Évolution du poids'}
+                        {progressMetric === 'steps' && 'Nombre de pas quotidiens'}
+                        {progressMetric === 'training' && 'Séances par période'}
+                        {progressMetric === 'fasting' && 'Distribution des jeûnes'}
+                      </h2>
+                      <canvas ref={chartRef} style={{ maxHeight: '300px' }}></canvas>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ ...styles.card, textAlign: 'center', padding: '48px' }}>
+                    <div style={{ fontSize: '64px', marginBottom: '16px' }}>📊</div>
+                    <p style={{ color: '#a1a1aa' }}>Aucune donnée pour ce metric encore</p>
+                    <p style={{ color: '#71717a', fontSize: '14px', marginTop: '8px' }}>Continue à tracker tes progrès !</p>
+                  </div>
+                )}
               </>
             )}
 
