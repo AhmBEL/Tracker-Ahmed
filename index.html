@@ -4,109 +4,338 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#09090b">
-  <meta name="description" content="Tracker de transformation physique - 130kg à 90kg">
   <title>Transformation Ahmed 2025</title>
-  
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
-  
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@800;900&display=swap" rel="stylesheet">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #09090b;
-      color: #fafafa;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      overflow-x: hidden;
-    }
-
-    #root {
-      min-height: 100vh;
-    }
-
-    button {
-      cursor: pointer;
-      font-family: inherit;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    input, textarea, select {
-      font-family: inherit;
-    }
-
-    ::-webkit-scrollbar {
-      width: 8px;
-      height: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: #18181b;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: #3f3f46;
-      border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: #52525b;
-    }
-
-    .loading {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .loading-spinner {
-      width: 50px;
-      height: 50px;
-      border: 4px solid #27272a;
-      border-top: 4px solid #10b981;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-    .loading-text {
-      color: #10b981;
-      font-size: 18px;
-      font-weight: 600;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'DM Sans', sans-serif; background: #09090b; color: #fafafa; -webkit-font-smoothing: antialiased; }
+    button { cursor: pointer; font-family: inherit; border: none; }
+    input, textarea, select { font-family: inherit; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #18181b; }
+    ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
   </style>
 </head>
 <body>
-  <div id="root">
-    <div class="loading">
-      <div class="loading-spinner"></div>
-      <div class="loading-text">Chargement...</div>
-    </div>
-  </div>
-
-  <!-- React & Dependencies -->
+  <div id="root"></div>
+  
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://unpkg.com/recharts@2.5.0/dist/Recharts.js"></script>
   
-  <!-- App Component -->
-  <script type="text/babel" src="./App.jsx"></script>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } = Recharts;
+
+    const App = () => {
+      const [data, setData] = useState({});
+      const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+      
+      useEffect(() => {
+        const saved = localStorage.getItem('transformation-ahmed');
+        if (saved) {
+          try { setData(JSON.parse(saved)); } catch (e) {}
+        }
+      }, []);
+
+      useEffect(() => {
+        if (Object.keys(data).length > 0) {
+          localStorage.setItem('transformation-ahmed', JSON.stringify(data));
+        }
+      }, [data]);
+
+      const getTodayData = () => {
+        return data[selectedDate] || {
+          supplements: { morning: {}, evening: {}, meal: {} },
+          training: null,
+          steps: '',
+          hydration: false,
+          weight: '',
+          fasting: null,
+          comments: '',
+          mood: []
+        };
+      };
+
+      const updateData = (field, value) => {
+        setData(prev => ({
+          ...prev,
+          [selectedDate]: { ...getTodayData(), [field]: value }
+        }));
+      };
+
+      const today = getTodayData();
+
+      return (
+        <div style={{ minHeight: '100vh', paddingBottom: '80px', fontFamily: 'DM Sans, sans-serif' }}>
+          {/* Header */}
+          <div style={{ background: 'linear-gradient(to bottom right, #18181b, #09090b)', borderBottom: '1px solid #27272a', padding: '24px 16px', position: 'sticky', top: 0, zIndex: 10 }}>
+            <div style={{ maxWidth: '896px', margin: '0 auto' }}>
+              <h1 style={{ fontSize: '36px', fontWeight: '900', color: '#10b981', fontFamily: 'Outfit, sans-serif' }}>
+                TRANSFORMATION
+              </h1>
+              <p style={{ color: '#71717a', fontSize: '14px', marginTop: '4px' }}>130kg → 90kg · Phase 1</p>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div style={{ maxWidth: '896px', margin: '0 auto', padding: '24px 16px' }}>
+            {/* Date */}
+            <div style={{ background: '#18181b', borderRadius: '12px', padding: '16px', border: '1px solid #27272a', textAlign: 'center', marginBottom: '24px' }}>
+              <p style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                {new Date(selectedDate).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+            </div>
+
+            {/* Supplements Matin */}
+            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#fbbf24' }}>
+                💊 Compléments Matin (7h15)
+              </h2>
+              {['NAC 1200mg', 'Vitamine C 1000mg', 'Magnésium 200mg', 'Électrolytes 500ml'].map(supp => (
+                <button
+                  key={supp}
+                  onClick={() => {
+                    const supplements = { ...today.supplements };
+                    supplements.morning = { ...supplements.morning };
+                    supplements.morning[supp] = !supplements.morning[supp];
+                    updateData('supplements', supplements);
+                  }}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    marginBottom: '8px',
+                    transition: 'all 0.2s',
+                    background: today.supplements.morning?.[supp] ? 'rgba(16, 185, 129, 0.1)' : '#27272a',
+                    border: today.supplements.morning?.[supp] ? '2px solid #10b981' : '2px solid #3f3f46',
+                    color: today.supplements.morning?.[supp] ? '#10b981' : '#a1a1aa',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <span style={{ fontSize: '20px' }}>{today.supplements.morning?.[supp] ? '✓' : '○'}</span>
+                  <span>{supp}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Supplements Soir */}
+            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#818cf8' }}>
+                💊 Compléments Soir (18h)
+              </h2>
+              {['NAC 1200mg', 'Vitamine C 500mg', 'Électrolytes 500ml'].map(supp => (
+                <button
+                  key={supp}
+                  onClick={() => {
+                    const supplements = { ...today.supplements };
+                    supplements.evening = { ...supplements.evening };
+                    supplements.evening[supp] = !supplements.evening[supp];
+                    updateData('supplements', supplements);
+                  }}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    marginBottom: '8px',
+                    transition: 'all 0.2s',
+                    background: today.supplements.evening?.[supp] ? 'rgba(16, 185, 129, 0.1)' : '#27272a',
+                    border: today.supplements.evening?.[supp] ? '2px solid #10b981' : '2px solid #3f3f46',
+                    color: today.supplements.evening?.[supp] ? '#10b981' : '#a1a1aa',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <span style={{ fontSize: '20px' }}>{today.supplements.evening?.[supp] ? '✓' : '○'}</span>
+                  <span>{supp}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Supplements Repas */}
+            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#a78bfa' }}>
+                💊 Avec Repas (18h-19h)
+              </h2>
+              {['Créatine 5g', 'Magnésium 200mg', 'Zinc 30mg'].map(supp => (
+                <button
+                  key={supp}
+                  onClick={() => {
+                    const supplements = { ...today.supplements };
+                    supplements.meal = { ...supplements.meal };
+                    supplements.meal[supp] = !supplements.meal[supp];
+                    updateData('supplements', supplements);
+                  }}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    marginBottom: '8px',
+                    transition: 'all 0.2s',
+                    background: today.supplements.meal?.[supp] ? 'rgba(16, 185, 129, 0.1)' : '#27272a',
+                    border: today.supplements.meal?.[supp] ? '2px solid #10b981' : '2px solid #3f3f46',
+                    color: today.supplements.meal?.[supp] ? '#10b981' : '#a1a1aa',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <span style={{ fontSize: '20px' }}>{today.supplements.meal?.[supp] ? '✓' : '○'}</span>
+                  <span>{supp}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Training */}
+            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#f43f5e' }}>
+                💪 Training Salle
+              </h2>
+              {['Séance A (Squat/Poussée)', 'Séance B (Deadlift/Traction)', 'Séance C (Mixte)'].map(training => (
+                <button
+                  key={training}
+                  onClick={() => updateData('training', today.training === training ? null : training)}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    marginBottom: '8px',
+                    background: today.training === training ? 'rgba(244, 63, 94, 0.1)' : '#27272a',
+                    border: today.training === training ? '2px solid #f43f5e' : '2px solid #3f3f46',
+                    color: today.training === training ? '#f43f5e' : '#a1a1aa'
+                  }}
+                >
+                  {training}
+                </button>
+              ))}
+            </div>
+
+            {/* Steps */}
+            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#3b82f6' }}>
+                👣 Nombre de pas
+              </h2>
+              <input
+                type="number"
+                value={today.steps}
+                onChange={(e) => updateData('steps', e.target.value)}
+                placeholder="10000"
+                style={{
+                  width: '100%',
+                  background: '#27272a',
+                  border: '2px solid #3f3f46',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  fontSize: '24px',
+                  fontWeight: 'bold',
+                  textAlign: 'center',
+                  color: '#fafafa'
+                }}
+              />
+            </div>
+
+            {/* Hydration */}
+            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#06b6d4' }}>
+                    💧 Hydratation 3-4L
+                  </h2>
+                  <p style={{ color: '#71717a', fontSize: '14px', marginTop: '4px' }}>Électrolytes toute la journée</p>
+                </div>
+                <button
+                  onClick={() => updateData('hydration', !today.hydration)}
+                  style={{
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '50%',
+                    background: today.hydration ? '#06b6d4' : '#27272a',
+                    color: today.hydration ? '#09090b' : '#71717a',
+                    fontSize: '32px',
+                    border: 'none'
+                  }}
+                >
+                  {today.hydration ? '✓' : '○'}
+                </button>
+              </div>
+            </div>
+
+            {/* Weight (Monday) */}
+            {new Date(selectedDate).getDay() === 1 && (
+              <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
+                <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#10b981' }}>
+                  ⚖️ Poids du Lundi
+                </h2>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={today.weight}
+                  onChange={(e) => updateData('weight', e.target.value)}
+                  placeholder="130.0"
+                  style={{
+                    width: '100%',
+                    background: '#27272a',
+                    border: '2px solid #3f3f46',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    fontSize: '32px',
+                    fontWeight: 'bold',
+                    textAlign: 'center',
+                    color: '#fafafa'
+                  }}
+                />
+                <p style={{ textAlign: 'center', color: '#71717a', fontSize: '14px', marginTop: '8px' }}>
+                  kg · À jeun le matin
+                </p>
+              </div>
+            )}
+
+            {/* Comments */}
+            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px' }}>
+                📝 Notes & Commentaires
+              </h2>
+              <textarea
+                value={today.comments}
+                onChange={(e) => updateData('comments', e.target.value)}
+                placeholder="Remarques, ressentis, observations du jour..."
+                rows="4"
+                style={{
+                  width: '100%',
+                  background: '#27272a',
+                  border: '2px solid #3f3f46',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: '#fafafa',
+                  resize: 'none'
+                }}
+              />
+            </div>
+
+            {/* Stats */}
+            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', textAlign: 'center' }}>
+              <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#10b981', marginBottom: '8px' }}>
+                {Object.keys(data).length} jours trackés
+              </p>
+              <p style={{ color: '#71717a', fontSize: '14px' }}>
+                Données sauvegardées localement
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
 </body>
 </html>
