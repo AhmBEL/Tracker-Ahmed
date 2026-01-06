@@ -9,40 +9,50 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@800;900&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'DM Sans', sans-serif; background: #09090b; color: #fafafa; -webkit-font-smoothing: antialiased; }
-    button { cursor: pointer; font-family: inherit; border: none; }
+    body { font-family: 'DM Sans', sans-serif; background: #09090b; color: #fafafa; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+    button { cursor: pointer; font-family: inherit; border: none; -webkit-tap-highlight-color: transparent; }
     input, textarea, select { font-family: inherit; }
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #18181b; }
     ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+    .loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+    .loading-spinner { width: 50px; height: 50px; border: 4px solid #27272a; border-top: 4px solid #10b981; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <div id="root"></div>
-  
+  <div id="root">
+    <div class="loading">
+      <div class="loading-spinner"></div>
+      <div style="color: #10b981; font-size: 18px; font-weight: 600;">Chargement...</div>
+    </div>
+  </div>
+
+  <!-- Load React and dependencies in correct order -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/recharts@2.5.0/dist/Recharts.js"></script>
   
+  <!-- Main App -->
   <script type="text/babel">
     const { useState, useEffect } = React;
-    const { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } = Recharts;
 
     const App = () => {
+      const [currentView, setCurrentView] = useState('today');
       const [data, setData] = useState({});
       const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+      const [expandedSections, setExpandedSections] = useState({ morning: false, evening: false, meal: false });
       
       useEffect(() => {
-        const saved = localStorage.getItem('transformation-ahmed');
+        const saved = localStorage.getItem('transformation-ahmed-data');
         if (saved) {
-          try { setData(JSON.parse(saved)); } catch (e) {}
+          try { setData(JSON.parse(saved)); } catch (e) { console.error(e); }
         }
       }, []);
 
       useEffect(() => {
         if (Object.keys(data).length > 0) {
-          localStorage.setItem('transformation-ahmed', JSON.stringify(data));
+          localStorage.setItem('transformation-ahmed-data', JSON.stringify(data));
         }
       }, [data]);
 
@@ -66,269 +76,317 @@
         }));
       };
 
+      const toggleSupplement = (time, supp) => {
+        const today = getTodayData();
+        const supplements = { ...today.supplements };
+        supplements[time] = { ...supplements[time] };
+        supplements[time][supp] = !supplements[time][supp];
+        updateData('supplements', supplements);
+      };
+
+      const toggleAllSupplements = (time) => {
+        const today = getTodayData();
+        const supplements = { ...today.supplements };
+        const list = supplementsList[time];
+        const allChecked = list.every(s => supplements[time]?.[s]);
+        supplements[time] = {};
+        list.forEach(s => { supplements[time][s] = !allChecked; });
+        updateData('supplements', supplements);
+      };
+
+      const toggleMood = (emoji) => {
+        const today = getTodayData();
+        const moods = [...(today.mood || [])];
+        const idx = moods.indexOf(emoji);
+        if (idx > -1) moods.splice(idx, 1);
+        else moods.push(emoji);
+        updateData('mood', moods);
+      };
+
+      const exportData = () => {
+        const csv = ['Date,Poids,Training,Pas,Hydratation,Jeûne,Mood,Suppl Matin,Suppl Soir,Suppl Repas,Commentaires'];
+        Object.entries(data).forEach(([date, value]) => {
+          const morning = Object.entries(value.supplements?.morning || {}).filter(([_, c]) => c).map(([s]) => s).join(';');
+          const evening = Object.entries(value.supplements?.evening || {}).filter(([_, c]) => c).map(([s]) => s).join(';');
+          const meal = Object.entries(value.supplements?.meal || {}).filter(([_, c]) => c).map(([s]) => s).join(';');
+          csv.push([date, value.weight || '', value.training || '', value.steps || '', value.hydration ? 'Oui' : 'Non', 
+                    value.fasting || '', (value.mood || []).join(';'), morning, evening, meal, 
+                    (value.comments || '').replace(/,/g, ';')].join(','));
+        });
+        const blob = new Blob([csv.join('\\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `transformation-ahmed-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+      };
+
+      const getStreak = () => {
+        let streak = 0;
+        const today = new Date();
+        for (let i = 0; i < 100; i++) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          const dateStr = date.toISOString().split('T')[0];
+          const dayData = data[dateStr];
+          if (!dayData) { if (i > 0) break; continue; }
+          const checks = [
+            ...Object.values(dayData.supplements?.morning || {}),
+            ...Object.values(dayData.supplements?.evening || {}),
+            ...Object.values(dayData.supplements?.meal || {}),
+            !!dayData.training, dayData.hydration, !!dayData.fasting
+          ];
+          if (checks.filter(Boolean).length >= checks.length) streak++;
+          else if (i > 0) break;
+        }
+        return streak;
+      };
+
+      const supplementsList = {
+        morning: ['NAC 1200mg', 'Vitamine C 1000mg', 'Magnésium 200mg', 'Électrolytes 500ml'],
+        evening: ['NAC 1200mg', 'Vitamine C 500mg', 'Électrolytes 500ml'],
+        meal: ['Créatine 5g', 'Magnésium 200mg', 'Zinc 30mg']
+      };
+
+      const trainings = ['Séance A (Squat/Poussée)', 'Séance B (Deadlift/Traction)', 'Séance C (Mixte)'];
+      const fastingTypes = ['16/8', 'OMAD', 'OMAD Sec', 'Jeûne Total 24h', 'Jeûne Sec Total'];
+      const moods = [
+        { emoji: '😊', label: 'Très bien' },
+        { emoji: '💪', label: 'Fort' },
+        { emoji: '😴', label: 'Fatigué' },
+        { emoji: '🤕', label: 'Mal de tête' },
+        { emoji: '😰', label: 'Faible' },
+        { emoji: '🥵', label: 'Chaud' }
+      ];
+
       const today = getTodayData();
+      const isMonday = new Date(selectedDate).getDay() === 1;
+      const streak = getStreak();
+
+      const styles = {
+        container: { minHeight: '100vh', paddingBottom: '80px' },
+        header: { background: 'linear-gradient(to bottom right, #18181b, #09090b)', borderBottom: '1px solid #27272a', padding: '24px 16px', position: 'sticky', top: 0, zIndex: 10 },
+        maxW: { maxWidth: '896px', margin: '0 auto' },
+        title: { fontSize: '36px', fontWeight: '900', color: '#10b981', fontFamily: 'Outfit, sans-serif' },
+        subtitle: { color: '#71717a', fontSize: '14px', marginTop: '4px' },
+        nav: { display: 'flex', gap: '8px', marginTop: '16px', overflowX: 'auto', paddingBottom: '8px' },
+        navBtn: (active) => ({
+          padding: '8px 16px', borderRadius: '8px', fontSize: '14px', fontWeight: '600',
+          background: active ? '#10b981' : '#27272a', color: active ? '#09090b' : '#a1a1aa',
+          whiteSpace: 'nowrap', transition: 'all 0.2s'
+        }),
+        content: { maxWidth: '896px', margin: '0 auto', padding: '24px 16px' },
+        card: { background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' },
+        cardHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' },
+        cardTitle: (color) => ({ fontSize: '20px', fontWeight: 'bold', color }),
+        btn: (active) => ({
+          width: '100%', textAlign: 'left', padding: '12px 16px', borderRadius: '8px', marginBottom: '8px',
+          background: active ? 'rgba(16, 185, 129, 0.1)' : '#27272a',
+          border: `2px solid ${active ? '#10b981' : '#3f3f46'}`,
+          color: active ? '#10b981' : '#a1a1aa', display: 'flex', alignItems: 'center', gap: '12px'
+        }),
+        input: { width: '100%', background: '#27272a', border: '2px solid #3f3f46', borderRadius: '8px', 
+                padding: '16px', fontSize: '20px', fontWeight: 'bold', textAlign: 'center', color: '#fafafa' },
+        textarea: { width: '100%', background: '#27272a', border: '2px solid #3f3f46', borderRadius: '8px',
+                   padding: '12px', color: '#fafafa', resize: 'none', fontFamily: 'inherit' }
+      };
+
+      const SupplementSection = ({ time, title, color, icon }) => {
+        const today = getTodayData();
+        const list = supplementsList[time];
+        const count = Object.values(today.supplements[time] || {}).filter(Boolean).length;
+        const expanded = expandedSections[time];
+
+        return (
+          <div style={styles.card}>
+            <div style={{ cursor: 'pointer' }} onClick={() => setExpandedSections(p => ({ ...p, [time]: !p[time] }))}>
+              <div style={styles.cardHeader}>
+                <div>
+                  <h2 style={styles.cardTitle(color)}>{icon} {title}</h2>
+                  <p style={{ fontSize: '12px', color: '#71717a', marginTop: '4px' }}>{count}/{list.length} pris</p>
+                </div>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <button onClick={(e) => { e.stopPropagation(); toggleAllSupplements(time); }}
+                    style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+                            background: list.every(s => today.supplements[time]?.[s]) ? '#10b981' : '#3f3f46',
+                            color: list.every(s => today.supplements[time]?.[s]) ? '#09090b' : '#fafafa' }}>
+                    Tout
+                  </button>
+                  <span style={{ fontSize: '20px' }}>{expanded ? '▲' : '▼'}</span>
+                </div>
+              </div>
+            </div>
+            {expanded && list.map(supp => (
+              <button key={supp} onClick={() => toggleSupplement(time, supp)} style={styles.btn(today.supplements[time]?.[supp])}>
+                <span style={{ fontSize: '20px' }}>{today.supplements[time]?.[supp] ? '✓' : '○'}</span>
+                <span>{supp}</span>
+              </button>
+            ))}
+          </div>
+        );
+      };
 
       return (
-        <div style={{ minHeight: '100vh', paddingBottom: '80px', fontFamily: 'DM Sans, sans-serif' }}>
-          {/* Header */}
-          <div style={{ background: 'linear-gradient(to bottom right, #18181b, #09090b)', borderBottom: '1px solid #27272a', padding: '24px 16px', position: 'sticky', top: 0, zIndex: 10 }}>
-            <div style={{ maxWidth: '896px', margin: '0 auto' }}>
-              <h1 style={{ fontSize: '36px', fontWeight: '900', color: '#10b981', fontFamily: 'Outfit, sans-serif' }}>
-                TRANSFORMATION
-              </h1>
-              <p style={{ color: '#71717a', fontSize: '14px', marginTop: '4px' }}>130kg → 90kg · Phase 1</p>
+        <div style={styles.container}>
+          <div style={styles.header}>
+            <div style={styles.maxW}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h1 style={styles.title}>TRANSFORMATION</h1>
+                  <p style={styles.subtitle}>130kg → 90kg · Phase 1</p>
+                </div>
+                {streak > 0 && (
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fb923c' }}>
+                      <span style={{ fontSize: '20px' }}>🔥</span>
+                      <span style={{ fontSize: '24px', fontWeight: 'bold' }}>{streak}</span>
+                    </div>
+                    <p style={{ fontSize: '12px', color: '#71717a' }}>jours</p>
+                  </div>
+                )}
+              </div>
+              <div style={styles.nav}>
+                {['today', 'history'].map(view => (
+                  <button key={view} onClick={() => setCurrentView(view)} style={styles.navBtn(currentView === view)}>
+                    {view === 'today' ? "Aujourd'hui" : 'Historique'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Content */}
-          <div style={{ maxWidth: '896px', margin: '0 auto', padding: '24px 16px' }}>
-            {/* Date */}
-            <div style={{ background: '#18181b', borderRadius: '12px', padding: '16px', border: '1px solid #27272a', textAlign: 'center', marginBottom: '24px' }}>
-              <p style={{ fontSize: '24px', fontWeight: 'bold' }}>
-                {new Date(selectedDate).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-              </p>
-            </div>
-
-            {/* Supplements Matin */}
-            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#fbbf24' }}>
-                💊 Compléments Matin (7h15)
-              </h2>
-              {['NAC 1200mg', 'Vitamine C 1000mg', 'Magnésium 200mg', 'Électrolytes 500ml'].map(supp => (
-                <button
-                  key={supp}
-                  onClick={() => {
-                    const supplements = { ...today.supplements };
-                    supplements.morning = { ...supplements.morning };
-                    supplements.morning[supp] = !supplements.morning[supp];
-                    updateData('supplements', supplements);
-                  }}
-                  style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    marginBottom: '8px',
-                    transition: 'all 0.2s',
-                    background: today.supplements.morning?.[supp] ? 'rgba(16, 185, 129, 0.1)' : '#27272a',
-                    border: today.supplements.morning?.[supp] ? '2px solid #10b981' : '2px solid #3f3f46',
-                    color: today.supplements.morning?.[supp] ? '#10b981' : '#a1a1aa',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}
-                >
-                  <span style={{ fontSize: '20px' }}>{today.supplements.morning?.[supp] ? '✓' : '○'}</span>
-                  <span>{supp}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Supplements Soir */}
-            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#818cf8' }}>
-                💊 Compléments Soir (18h)
-              </h2>
-              {['NAC 1200mg', 'Vitamine C 500mg', 'Électrolytes 500ml'].map(supp => (
-                <button
-                  key={supp}
-                  onClick={() => {
-                    const supplements = { ...today.supplements };
-                    supplements.evening = { ...supplements.evening };
-                    supplements.evening[supp] = !supplements.evening[supp];
-                    updateData('supplements', supplements);
-                  }}
-                  style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    marginBottom: '8px',
-                    transition: 'all 0.2s',
-                    background: today.supplements.evening?.[supp] ? 'rgba(16, 185, 129, 0.1)' : '#27272a',
-                    border: today.supplements.evening?.[supp] ? '2px solid #10b981' : '2px solid #3f3f46',
-                    color: today.supplements.evening?.[supp] ? '#10b981' : '#a1a1aa',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}
-                >
-                  <span style={{ fontSize: '20px' }}>{today.supplements.evening?.[supp] ? '✓' : '○'}</span>
-                  <span>{supp}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Supplements Repas */}
-            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#a78bfa' }}>
-                💊 Avec Repas (18h-19h)
-              </h2>
-              {['Créatine 5g', 'Magnésium 200mg', 'Zinc 30mg'].map(supp => (
-                <button
-                  key={supp}
-                  onClick={() => {
-                    const supplements = { ...today.supplements };
-                    supplements.meal = { ...supplements.meal };
-                    supplements.meal[supp] = !supplements.meal[supp];
-                    updateData('supplements', supplements);
-                  }}
-                  style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    marginBottom: '8px',
-                    transition: 'all 0.2s',
-                    background: today.supplements.meal?.[supp] ? 'rgba(16, 185, 129, 0.1)' : '#27272a',
-                    border: today.supplements.meal?.[supp] ? '2px solid #10b981' : '2px solid #3f3f46',
-                    color: today.supplements.meal?.[supp] ? '#10b981' : '#a1a1aa',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}
-                >
-                  <span style={{ fontSize: '20px' }}>{today.supplements.meal?.[supp] ? '✓' : '○'}</span>
-                  <span>{supp}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Training */}
-            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#f43f5e' }}>
-                💪 Training Salle
-              </h2>
-              {['Séance A (Squat/Poussée)', 'Séance B (Deadlift/Traction)', 'Séance C (Mixte)'].map(training => (
-                <button
-                  key={training}
-                  onClick={() => updateData('training', today.training === training ? null : training)}
-                  style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    marginBottom: '8px',
-                    background: today.training === training ? 'rgba(244, 63, 94, 0.1)' : '#27272a',
-                    border: today.training === training ? '2px solid #f43f5e' : '2px solid #3f3f46',
-                    color: today.training === training ? '#f43f5e' : '#a1a1aa'
-                  }}
-                >
-                  {training}
-                </button>
-              ))}
-            </div>
-
-            {/* Steps */}
-            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#3b82f6' }}>
-                👣 Nombre de pas
-              </h2>
-              <input
-                type="number"
-                value={today.steps}
-                onChange={(e) => updateData('steps', e.target.value)}
-                placeholder="10000"
-                style={{
-                  width: '100%',
-                  background: '#27272a',
-                  border: '2px solid #3f3f46',
-                  borderRadius: '8px',
-                  padding: '16px',
-                  fontSize: '24px',
-                  fontWeight: 'bold',
-                  textAlign: 'center',
-                  color: '#fafafa'
-                }}
-              />
-            </div>
-
-            {/* Hydration */}
-            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#06b6d4' }}>
-                    💧 Hydratation 3-4L
-                  </h2>
-                  <p style={{ color: '#71717a', fontSize: '14px', marginTop: '4px' }}>Électrolytes toute la journée</p>
+          <div style={styles.content}>
+            {currentView === 'today' && (
+              <>
+                <div style={{ ...styles.card, textAlign: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d.toISOString().split('T')[0]); }}
+                      style={{ padding: '8px', background: 'transparent', color: '#fafafa', fontSize: '20px' }}>←</button>
+                    <div>
+                      <p style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                        {new Date(selectedDate).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                      </p>
+                      {selectedDate === new Date().toISOString().split('T')[0] && (
+                        <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>Aujourd'hui</p>
+                      )}
+                    </div>
+                    <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); if (d <= new Date()) setSelectedDate(d.toISOString().split('T')[0]); }}
+                      disabled={selectedDate >= new Date().toISOString().split('T')[0]}
+                      style={{ padding: '8px', background: 'transparent', color: '#fafafa', fontSize: '20px', opacity: selectedDate >= new Date().toISOString().split('T')[0] ? 0.3 : 1 }}>→</button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => updateData('hydration', !today.hydration)}
-                  style={{
-                    width: '64px',
-                    height: '64px',
-                    borderRadius: '50%',
-                    background: today.hydration ? '#06b6d4' : '#27272a',
-                    color: today.hydration ? '#09090b' : '#71717a',
-                    fontSize: '32px',
-                    border: 'none'
-                  }}
-                >
-                  {today.hydration ? '✓' : '○'}
-                </button>
-              </div>
-            </div>
 
-            {/* Weight (Monday) */}
-            {new Date(selectedDate).getDay() === 1 && (
-              <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
-                <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#10b981' }}>
-                  ⚖️ Poids du Lundi
-                </h2>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={today.weight}
-                  onChange={(e) => updateData('weight', e.target.value)}
-                  placeholder="130.0"
-                  style={{
-                    width: '100%',
-                    background: '#27272a',
-                    border: '2px solid #3f3f46',
-                    borderRadius: '8px',
-                    padding: '16px',
-                    fontSize: '32px',
-                    fontWeight: 'bold',
-                    textAlign: 'center',
-                    color: '#fafafa'
-                  }}
-                />
-                <p style={{ textAlign: 'center', color: '#71717a', fontSize: '14px', marginTop: '8px' }}>
-                  kg · À jeun le matin
-                </p>
-              </div>
+                <SupplementSection time="morning" title="Compléments Matin (7h15)" color="#fbbf24" icon="💊" />
+                <SupplementSection time="evening" title="Compléments Soir (18h)" color="#818cf8" icon="💊" />
+                <SupplementSection time="meal" title="Avec Repas (18h-19h)" color="#a78bfa" icon="💊" />
+
+                <div style={styles.card}>
+                  <h2 style={styles.cardTitle('#f43f5e')}>💪 Training Salle</h2>
+                  {trainings.map(t => (
+                    <button key={t} onClick={() => updateData('training', today.training === t ? null : t)}
+                      style={{ ...styles.btn(today.training === t), marginTop: '8px' }}>{t}</button>
+                  ))}
+                </div>
+
+                <div style={styles.card}>
+                  <h2 style={styles.cardTitle('#3b82f6')}>👣 Nombre de pas</h2>
+                  <input type="number" value={today.steps} onChange={(e) => updateData('steps', e.target.value)}
+                    placeholder="10000" style={{ ...styles.input, marginTop: '16px' }} />
+                </div>
+
+                <div style={styles.card}>
+                  <h2 style={styles.cardTitle('#a855f7')}>⏰ Type de Jeûne</h2>
+                  {fastingTypes.map(f => (
+                    <button key={f} onClick={() => updateData('fasting', today.fasting === f ? null : f)}
+                      style={{ ...styles.btn(today.fasting === f), marginTop: '8px' }}>{f}</button>
+                  ))}
+                </div>
+
+                <div style={styles.card}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <h2 style={styles.cardTitle('#06b6d4')}>💧 Hydratation 3-4L</h2>
+                      <p style={{ fontSize: '14px', color: '#71717a', marginTop: '4px' }}>Électrolytes toute la journée</p>
+                    </div>
+                    <button onClick={() => updateData('hydration', !today.hydration)}
+                      style={{ width: '64px', height: '64px', borderRadius: '50%', background: today.hydration ? '#06b6d4' : '#27272a',
+                              color: today.hydration ? '#09090b' : '#71717a', fontSize: '32px' }}>
+                      {today.hydration ? '✓' : '○'}
+                    </button>
+                  </div>
+                </div>
+
+                {isMonday && (
+                  <div style={styles.card}>
+                    <h2 style={styles.cardTitle('#10b981')}>⚖️ Poids du Lundi</h2>
+                    <input type="number" step="0.1" value={today.weight} onChange={(e) => updateData('weight', e.target.value)}
+                      placeholder="130.0" style={{ ...styles.input, marginTop: '16px', fontSize: '32px' }} />
+                    <p style={{ textAlign: 'center', color: '#71717a', fontSize: '14px', marginTop: '8px' }}>kg · À jeun le matin</p>
+                  </div>
+                )}
+
+                <div style={styles.card}>
+                  <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px' }}>Comment tu te sens ?</h2>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                    {moods.map(({ emoji, label }) => (
+                      <button key={emoji} onClick={() => toggleMood(emoji)}
+                        style={{ padding: '16px', borderRadius: '12px', background: today.mood?.includes(emoji) ? 'rgba(251, 146, 60, 0.1)' : '#27272a',
+                                border: `2px solid ${today.mood?.includes(emoji) ? '#fb923c' : '#3f3f46'}`, textAlign: 'center' }}>
+                        <div style={{ fontSize: '40px', marginBottom: '8px' }}>{emoji}</div>
+                        <div style={{ fontSize: '12px', color: '#a1a1aa' }}>{label}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={styles.card}>
+                  <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px' }}>📝 Notes & Commentaires</h2>
+                  <textarea value={today.comments} onChange={(e) => updateData('comments', e.target.value)}
+                    placeholder="Remarques, ressentis, observations du jour..." rows="4" style={styles.textarea} />
+                </div>
+              </>
             )}
 
-            {/* Comments */}
-            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px' }}>
-                📝 Notes & Commentaires
-              </h2>
-              <textarea
-                value={today.comments}
-                onChange={(e) => updateData('comments', e.target.value)}
-                placeholder="Remarques, ressentis, observations du jour..."
-                rows="4"
-                style={{
-                  width: '100%',
-                  background: '#27272a',
-                  border: '2px solid #3f3f46',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  color: '#fafafa',
-                  resize: 'none'
-                }}
-              />
-            </div>
+            {currentView === 'history' && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+                  <h2 style={{ fontSize: '24px', fontWeight: 'bold' }}>Historique</h2>
+                  <button onClick={exportData} style={{ padding: '8px 16px', borderRadius: '8px', background: '#10b981', color: '#09090b', fontWeight: '600' }}>
+                    📥 Export CSV
+                  </button>
+                </div>
+                {Object.entries(data).sort(([a], [b]) => new Date(b) - new Date(a)).map(([date, d]) => (
+                  <button key={date} onClick={() => { setSelectedDate(date); setCurrentView('today'); }}
+                    style={{ ...styles.card, cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+                    <p style={{ fontWeight: 'bold', fontSize: '18px' }}>
+                      {new Date(date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                    </p>
+                    <div style={{ display: 'flex', gap: '16px', marginTop: '8px', fontSize: '14px', color: '#a1a1aa', flexWrap: 'wrap' }}>
+                      {d.weight && <span>⚖️ {d.weight}kg</span>}
+                      {d.training && <span>💪 {d.training.split('(')[0]}</span>}
+                      {d.steps && <span>👣 {d.steps}</span>}
+                      {d.fasting && <span>⏰ {d.fasting}</span>}
+                      {d.hydration && <span>💧</span>}
+                      {d.mood?.length > 0 && <span>{d.mood.join(' ')}</span>}
+                    </div>
+                    {d.comments && <p style={{ fontSize: '12px', color: '#71717a', marginTop: '8px', fontStyle: 'italic' }}>"{d.comments.substring(0, 60)}..."</p>}
+                  </button>
+                ))}
+                {Object.keys(data).length === 0 && (
+                  <div style={{ ...styles.card, textAlign: 'center', padding: '48px' }}>
+                    <div style={{ fontSize: '64px', marginBottom: '16px' }}>📅</div>
+                    <p style={{ color: '#a1a1aa' }}>Aucune donnée encore</p>
+                    <p style={{ color: '#71717a', fontSize: '14px', marginTop: '8px' }}>Commence à tracker dès aujourd'hui !</p>
+                  </div>
+                )}
+              </>
+            )}
 
-            {/* Stats */}
-            <div style={{ background: '#18181b', borderRadius: '12px', padding: '24px', border: '1px solid #27272a', textAlign: 'center' }}>
+            <div style={{ ...styles.card, textAlign: 'center' }}>
               <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#10b981', marginBottom: '8px' }}>
                 {Object.keys(data).length} jours trackés
               </p>
-              <p style={{ color: '#71717a', fontSize: '14px' }}>
-                Données sauvegardées localement
-              </p>
+              <p style={{ color: '#71717a', fontSize: '14px' }}>Données sauvegardées localement</p>
             </div>
           </div>
         </div>
