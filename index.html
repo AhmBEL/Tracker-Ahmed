@@ -15,25 +15,15 @@
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #18181b; }
     ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
-    .loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
-    .loading-spinner { width: 50px; height: 50px; border: 4px solid #27272a; border-top: 4px solid #10b981; border-radius: 50%; animation: spin 1s linear infinite; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <div id="root">
-    <div class="loading">
-      <div class="loading-spinner"></div>
-      <div style="color: #10b981; font-size: 18px; font-weight: 600;">Chargement...</div>
-    </div>
-  </div>
+  <div id="root"></div>
 
-  <!-- Load React and dependencies in correct order -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- Main App -->
   <script type="text/babel">
     const { useState, useEffect } = React;
 
@@ -42,6 +32,8 @@
       const [data, setData] = useState({});
       const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
       const [expandedSections, setExpandedSections] = useState({ morning: false, evening: false, meal: false });
+      const [weekOffset, setWeekOffset] = useState(0);
+      const [monthOffset, setMonthOffset] = useState(0);
       
       useEffect(() => {
         const saved = localStorage.getItem('transformation-ahmed-data');
@@ -103,6 +95,58 @@
         updateData('mood', moods);
       };
 
+      const getDayStatus = (date) => {
+        const dayData = data[date];
+        if (!dayData) return 'empty';
+        
+        const checks = [
+          ...Object.values(dayData.supplements?.morning || {}),
+          ...Object.values(dayData.supplements?.evening || {}),
+          ...Object.values(dayData.supplements?.meal || {}),
+          !!dayData.training, dayData.hydration, !!dayData.fasting
+        ];
+        const completed = checks.filter(Boolean).length;
+        const total = checks.length;
+        
+        if (completed === total) return 'complete';
+        if (completed > total * 0.6) return 'partial';
+        return 'incomplete';
+      };
+
+      const getWeekDates = () => {
+        const dates = [];
+        const today = new Date();
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay() + 1 + (weekOffset * 7));
+        
+        for (let i = 0; i < 7; i++) {
+          const date = new Date(startOfWeek);
+          date.setDate(startOfWeek.getDate() + i);
+          dates.push(date.toISOString().split('T')[0]);
+        }
+        return dates;
+      };
+
+      const getMonthDates = () => {
+        const dates = [];
+        const today = new Date();
+        const targetMonth = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+        
+        const firstDay = targetMonth.getDay();
+        const offset = firstDay === 0 ? -6 : 1 - firstDay;
+        
+        const startDate = new Date(targetMonth);
+        startDate.setDate(offset);
+        
+        for (let i = 0; i < 35; i++) {
+          const date = new Date(startDate);
+          date.setDate(startDate.getDate() + i);
+          dates.push(date.toISOString().split('T')[0]);
+        }
+        
+        return dates;
+      };
+
       const exportData = () => {
         const csv = ['Date,Poids,Training,Pas,Hydratation,Jeûne,Mood,Suppl Matin,Suppl Soir,Suppl Repas,Commentaires'];
         Object.entries(data).forEach(([date, value]) => {
@@ -113,7 +157,7 @@
                     value.fasting || '', (value.mood || []).join(';'), morning, evening, meal, 
                     (value.comments || '').replace(/,/g, ';')].join(','));
         });
-        const blob = new Blob([csv.join('\\n')], { type: 'text/csv' });
+        const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -128,15 +172,7 @@
           const date = new Date(today);
           date.setDate(date.getDate() - i);
           const dateStr = date.toISOString().split('T')[0];
-          const dayData = data[dateStr];
-          if (!dayData) { if (i > 0) break; continue; }
-          const checks = [
-            ...Object.values(dayData.supplements?.morning || {}),
-            ...Object.values(dayData.supplements?.evening || {}),
-            ...Object.values(dayData.supplements?.meal || {}),
-            !!dayData.training, dayData.hydration, !!dayData.fasting
-          ];
-          if (checks.filter(Boolean).length >= checks.length) streak++;
+          if (getDayStatus(dateStr) === 'complete') streak++;
           else if (i > 0) break;
         }
         return streak;
@@ -162,6 +198,8 @@
       const today = getTodayData();
       const isMonday = new Date(selectedDate).getDay() === 1;
       const streak = getStreak();
+      const weekDates = getWeekDates();
+      const monthDates = getMonthDates();
 
       const styles = {
         container: { minHeight: '100vh', paddingBottom: '80px' },
@@ -246,9 +284,12 @@
                 )}
               </div>
               <div style={styles.nav}>
-                {['today', 'history'].map(view => (
+                {['today', 'week', 'month', 'history'].map(view => (
                   <button key={view} onClick={() => setCurrentView(view)} style={styles.navBtn(currentView === view)}>
-                    {view === 'today' ? "Aujourd'hui" : 'Historique'}
+                    {view === 'today' && "Aujourd'hui"}
+                    {view === 'week' && 'Semaine'}
+                    {view === 'month' && 'Mois'}
+                    {view === 'history' && 'Historique'}
                   </button>
                 ))}
               </div>
@@ -343,6 +384,140 @@
                   <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px' }}>📝 Notes & Commentaires</h2>
                   <textarea value={today.comments} onChange={(e) => updateData('comments', e.target.value)}
                     placeholder="Remarques, ressentis, observations du jour..." rows="4" style={styles.textarea} />
+                </div>
+              </>
+            )}
+
+            {currentView === 'week' && (
+              <>
+                <div style={{ ...styles.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button onClick={() => setWeekOffset(weekOffset - 1)}
+                    style={{ padding: '8px', background: 'transparent', color: '#fafafa', fontSize: '20px' }}>←</button>
+                  <p style={{ fontSize: '20px', fontWeight: 'bold' }}>
+                    Semaine du {new Date(weekDates[0]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+                  </p>
+                  <button onClick={() => setWeekOffset(weekOffset + 1)} disabled={weekOffset >= 0}
+                    style={{ padding: '8px', background: 'transparent', color: '#fafafa', fontSize: '20px', opacity: weekOffset >= 0 ? 0.3 : 1 }}>→</button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', marginBottom: '16px' }}>
+                  {weekDates.map(date => {
+                    const status = getDayStatus(date);
+                    const dayData = data[date];
+                    const dayName = new Date(date).toLocaleDateString('fr-FR', { weekday: 'short' });
+                    const dayNum = new Date(date).getDate();
+                    const statusColors = {
+                      complete: { bg: 'rgba(16, 185, 129, 0.1)', border: '#10b981' },
+                      partial: { bg: 'rgba(251, 146, 60, 0.1)', border: '#fb923c' },
+                      incomplete: { bg: 'rgba(244, 63, 94, 0.1)', border: '#f43f5e' },
+                      empty: { bg: '#18181b', border: '#27272a' }
+                    };
+
+                    return (
+                      <button key={date} onClick={() => { setSelectedDate(date); setCurrentView('today'); }}
+                        style={{
+                          aspectRatio: '1', borderRadius: '12px', padding: '12px', border: `2px solid ${statusColors[status].border}`,
+                          background: statusColors[status].bg, textAlign: 'center'
+                        }}>
+                        <div style={{ fontSize: '10px', color: '#71717a', textTransform: 'uppercase', marginBottom: '4px' }}>{dayName}</div>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '4px' }}>{dayNum}</div>
+                        {dayData?.weight && <div style={{ fontSize: '10px', color: '#a1a1aa' }}>{dayData.weight}kg</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div style={styles.card}>
+                  <h3 style={{ fontWeight: 'bold', marginBottom: '16px' }}>Légende</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.1)', border: '2px solid #10b981' }}></div>
+                      <span>Vert : Tout fait ✓</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(251, 146, 60, 0.1)', border: '2px solid #fb923c' }}></div>
+                      <span>Orange : Partiel (&gt;60%)</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(244, 63, 94, 0.1)', border: '2px solid #f43f5e' }}></div>
+                      <span>Rouge : Peu fait</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: '#18181b', border: '2px solid #27272a' }}></div>
+                      <span>Gris : Pas de données</span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {currentView === 'month' && (
+              <>
+                <div style={{ ...styles.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button onClick={() => setMonthOffset(monthOffset - 1)}
+                    style={{ padding: '8px', background: 'transparent', color: '#fafafa', fontSize: '20px' }}>←</button>
+                  <p style={{ fontSize: '20px', fontWeight: 'bold' }}>
+                    {new Date(new Date().getFullYear(), new Date().getMonth() + monthOffset, 1)
+                      .toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                  </p>
+                  <button onClick={() => setMonthOffset(monthOffset + 1)} disabled={monthOffset >= 0}
+                    style={{ padding: '8px', background: 'transparent', color: '#fafafa', fontSize: '20px', opacity: monthOffset >= 0 ? 0.3 : 1 }}>→</button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '8px' }}>
+                  {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map(day => (
+                    <div key={day} style={{ textAlign: 'center', fontSize: '12px', fontWeight: 'bold', color: '#71717a', textTransform: 'uppercase', padding: '8px' }}>
+                      {day}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '16px' }}>
+                  {monthDates.map(date => {
+                    const status = getDayStatus(date);
+                    const dayData = data[date];
+                    const dayNum = new Date(date).getDate();
+                    const isCurrentMonth = new Date(date).getMonth() === new Date().getMonth() + monthOffset;
+                    const statusColors = {
+                      complete: { bg: 'rgba(16, 185, 129, 0.1)', border: '#10b981' },
+                      partial: { bg: 'rgba(251, 146, 60, 0.1)', border: '#fb923c' },
+                      incomplete: { bg: 'rgba(244, 63, 94, 0.1)', border: '#f43f5e' },
+                      empty: { bg: '#18181b', border: '#27272a' }
+                    };
+
+                    return (
+                      <button key={date} onClick={() => { setSelectedDate(date); setCurrentView('today'); }}
+                        style={{
+                          aspectRatio: '1', borderRadius: '8px', padding: '8px', border: `2px solid ${statusColors[status].border}`,
+                          background: statusColors[status].bg, opacity: isCurrentMonth ? 1 : 0.3, textAlign: 'center'
+                        }}>
+                        <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{dayNum}</div>
+                        {dayData?.weight && isCurrentMonth && <div style={{ fontSize: '8px', color: '#a1a1aa', marginTop: '2px' }}>{dayData.weight}</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div style={styles.card}>
+                  <h3 style={{ fontWeight: 'bold', marginBottom: '16px' }}>Légende</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.1)', border: '2px solid #10b981' }}></div>
+                      <span>Vert : Tout fait ✓</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(251, 146, 60, 0.1)', border: '2px solid #fb923c' }}></div>
+                      <span>Orange : Partiel (&gt;60%)</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(244, 63, 94, 0.1)', border: '2px solid #f43f5e' }}></div>
+                      <span>Rouge : Peu fait</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: '#18181b', border: '2px solid #27272a' }}></div>
+                      <span>Gris : Pas de données</span>
+                    </div>
+                  </div>
                 </div>
               </>
             )}
